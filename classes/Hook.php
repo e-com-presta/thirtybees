@@ -457,34 +457,39 @@ class HookCore extends ObjectModel
             $hookCallable = is_callable([$moduleInstance, 'hook'.$hookName]);
             $hookRetroCallable = is_callable([$moduleInstance, 'hook'.$retroHookName]);
 
-            if (($hookCallable || $hookRetroCallable) && Module::preCall($moduleInstance->name)) {
-                $hookArgs['altern'] = ++$altern;
+            if ($hookCallable || $hookRetroCallable) {
 
-                if ($usePush && isset($moduleInstance->push_filename) && file_exists($moduleInstance->push_filename)) {
-                    Tools::waitUntilFileIsModified($moduleInstance->push_filename, $moduleInstance->push_time_limit);
-                }
+                if (Module::preCall($moduleInstance->name)) {
+                    $hookArgs['altern'] = ++$altern;
 
-                // Call hook method
-                if ($hookCallable) {
-                    $display = Hook::coreCallHook($moduleInstance, 'hook'.$hookName, $hookArgs);
-                } elseif ($hookRetroCallable) {
-                    $display = Hook::coreCallHook($moduleInstance, 'hook'.$retroHookName, $hookArgs);
-                }
+                    if ($usePush && isset($moduleInstance->push_filename) && file_exists($moduleInstance->push_filename)) {
+                        Tools::waitUntilFileIsModified($moduleInstance->push_filename, $moduleInstance->push_time_limit);
+                    }
 
-                // Live edit
-                if (!$arrayReturn && $array['live_edit'] && Tools::isSubmit('live_edit') && Tools::getValue('ad')
-                    && Tools::getValue('liveToken') == Tools::getAdminToken(
-                        'AdminModulesPositions'
-                        .(int) Tab::getIdFromClassName('AdminModulesPositions').(int) Tools::getValue('id_employee')
-                    )
-                ) {
-                    $liveEdit = true;
-                    $output .= static::wrapLiveEdit($display, $moduleInstance, $array['id_hook']);
-                } elseif ($arrayReturn) {
-                    $output[$moduleInstance->name] = $display;
-                } else {
-                    $output .= $display;
+                    // Call hook method
+                    if ($hookCallable) {
+                        $display = Hook::coreCallHook($moduleInstance, 'hook' . $hookName, $hookArgs);
+                    } elseif ($hookRetroCallable) {
+                        $display = Hook::coreCallHook($moduleInstance, 'hook' . $retroHookName, $hookArgs);
+                    }
+
+                    // Live edit
+                    if (!$arrayReturn && $array['live_edit'] && Tools::isSubmit('live_edit') && Tools::getValue('ad')
+                        && Tools::getValue('liveToken') == Tools::getAdminToken(
+                            'AdminModulesPositions'
+                            . (int)Tab::getIdFromClassName('AdminModulesPositions') . (int)Tools::getValue('id_employee')
+                        )
+                    ) {
+                        $liveEdit = true;
+                        $output .= static::wrapLiveEdit($display, $moduleInstance, $array['id_hook']);
+                    } elseif ($arrayReturn) {
+                        $output[$moduleInstance->name] = $display;
+                    } else {
+                        $output .= $display;
+                    }
                 }
+            } else {
+                Logger::addLog("Module '{$array['module']}' doesn't implement handler for hook '$hookName'", 2, 0, 'Module', $moduleInstance->id);
             }
         }
 
@@ -637,7 +642,7 @@ class HookCore extends ObjectModel
      *
      * @param string $hookName Hook name
      *
-     * @return int Hook ID
+     * @return string alternate hook name
      *
      * @throws PrestaShopDatabaseException
      * @throws PrestaShopException
@@ -646,17 +651,20 @@ class HookCore extends ObjectModel
      */
     public static function getRetroHookName($hookName)
     {
+        $hookName = strtolower($hookName);
         $aliasList = Hook::getHookAliasList();
-        if (isset($aliasList[strtolower($hookName)])) {
-            return $aliasList[strtolower($hookName)];
+
+        if (isset($aliasList[$hookName])) {
+            return strtolower($aliasList[$hookName]);
         }
 
-        $retroHookName = array_search($hookName, $aliasList);
-        if ($retroHookName === false) {
-            return '';
+        foreach ($aliasList as $alias => $original) {
+            if (strtolower($original) === $hookName) {
+                return strtolower($alias);
+            }
         }
 
-        return $retroHookName;
+        return '';
     }
 
     /**
@@ -1131,4 +1139,36 @@ class HookCore extends ObjectModel
 
         return parent::add($autoDate, $nullValues);
     }
+
+    /**
+     * Returns true if $hookName is a displayable hook
+     *
+     * At the moment, crude check for hook name is used -- every hook starting with display
+     * is considered displayable hook, with exception of displayAdmin*
+     *
+     * @param string $hookName
+     * @param bool $includeBackOfficeHooks if true, then check for back office displayable hooks as well
+     *
+     * @return bool
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
+    public static function isDisplayableHook($hookName, $includeBackOfficeHooks=false)
+    {
+        $variants = [ $hookName, HookCore::getRetroHookName($hookName) ];
+        foreach ($variants as $hook) {
+            $hook = strtolower($hook);
+            if ((strpos($hook, 'display') === 0)) {
+                if ($includeBackOfficeHooks) {
+                    return true;
+                }
+                return (
+                    strpos($hook, 'displayadmin') !== 0 &&
+                    strpos($hook, 'displaybackoffice') !== 0
+                );
+            }
+        }
+        return false;
+    }
+
 }

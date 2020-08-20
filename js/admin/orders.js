@@ -49,7 +49,7 @@ function updateInvoice(invoices) {
     var selected = $(this).children('option:selected').val();
 
     $(this).children('option').remove();
-    $.each(invoices, function (i) {
+    for(i in invoices) {
       // Create new option
       var option = $('<option>' + invoices[i].name + '</option>').attr('value', invoices[i].id);
       if (invoices[i].id === selected) {
@@ -57,7 +57,7 @@ function updateInvoice(invoices) {
       }
 
       $(this).append(option);
-    });
+    }
   });
 
   // Update select on product addition line
@@ -76,12 +76,12 @@ function updateInvoice(invoices) {
   // Update select on product addition line
   $('#payment_invoice').each(function () {
     $(this).children('option').remove();
-    $.each(invoices, function (i) {
+    for(i in invoices) {
       // Create new option
       var option = $('<option>' + invoices[i].name + '</option>').attr('value', invoices[i].id);
 
       $(this).append(option);
-    });
+    }
   });
 }
 
@@ -103,7 +103,7 @@ function updateDiscountForm(discountFormHtml) {
 
 function populateWarehouseList(warehouseList) {
   $('#add_product_product_warehouse_area').hide();
-  if (warehouseList.length > 1) {
+  if (warehouseList.length >= 1) {
     $('#add_product_product_warehouse_area').show();
   }
   var orderWarehouseList = $('#warehouse_list').val().split(',');

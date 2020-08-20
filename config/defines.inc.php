@@ -38,7 +38,9 @@ if (!defined('_PS_DISPLAY_COMPATIBILITY_WARNING_')) {
     define('_PS_DISPLAY_COMPATIBILITY_WARNING_', false);
 }
 
-define('_PS_DEBUG_SQL_', _PS_MODE_DEV_);
+if (!defined('_PS_DEBUG_SQL_')) {
+    define('_PS_DEBUG_SQL_', _PS_MODE_DEV_);
+}
 
 if (!defined('_PS_DEBUG_PROFILING_')) {
     define('_PS_DEBUG_PROFILING_', false);
@@ -46,8 +48,6 @@ if (!defined('_PS_DEBUG_PROFILING_')) {
 if (!defined('_PS_MODE_DEMO_')) {
     define('_PS_MODE_DEMO_', false);
 }
-
-$currentDir = dirname(__FILE__);
 
 if (!defined('PHP_VERSION_ID')) {
     $version = explode('.', PHP_VERSION);
@@ -68,11 +68,11 @@ if (!defined('_PS_ROOT_DIR_') && (getenv('_PS_ROOT_DIR_') || getenv('REDIRECT__P
 
 /* Directories */
 if (!defined('_PS_ROOT_DIR_')) {
-    define('_PS_ROOT_DIR_', realpath($currentDir.'/..'));
+    define('_PS_ROOT_DIR_', dirname(__DIR__));
 }
 
 if (!defined('_PS_CORE_DIR_')) {
-    define('_PS_CORE_DIR_', realpath($currentDir.'/..'));
+    define('_PS_CORE_DIR_', _PS_ROOT_DIR_);
 }
 
 define('_PS_ALL_THEMES_DIR_',        _PS_ROOT_DIR_.'/themes/');
@@ -174,6 +174,12 @@ if ( ! defined('_TB_PRICE_DATABASE_PRECISION_')) {
     define('_TB_PRICE_DATABASE_PRECISION_', 6);
 }
 
+/**
+ * This constant exists for backwards compatibility only
+ *
+ * magic_quotes_gpc were removed in php 5.4, and all references to this constant was removed from
+ * thirty bees codebase in 1.1.1
+ */
 if (!defined('_PS_MAGIC_QUOTES_GPC_')) {
     define('_PS_MAGIC_QUOTES_GPC_', false);
 }

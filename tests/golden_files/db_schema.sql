@@ -681,7 +681,7 @@ CREATE TABLE `PREFIX_customer` (
   `last_passwd_gen` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `birthday` date DEFAULT NULL,
   `newsletter` tinyint(1) unsigned NOT NULL DEFAULT '0',
-  `ip_registration_newsletter` varchar(15) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_registration_newsletter` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `newsletter_date_add` datetime DEFAULT NULL,
   `optin` tinyint(1) unsigned NOT NULL DEFAULT '0',
   `website` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -719,7 +719,7 @@ CREATE TABLE `PREFIX_customer_message` (
   `message` mediumtext COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_name` varchar(18) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ip_address` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(250) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `date_add` datetime NOT NULL,
   `date_upd` datetime NOT NULL,
   `private` tinyint(4) NOT NULL DEFAULT '0',
@@ -1171,7 +1171,7 @@ CREATE TABLE `PREFIX_message_readed` (
 
 CREATE TABLE `PREFIX_meta` (
   `id_meta` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `page` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `page` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
   `configurable` tinyint(1) unsigned NOT NULL DEFAULT '1',
   PRIMARY KEY (`id_meta`),
   UNIQUE KEY `page` (`page`)
@@ -1331,7 +1331,7 @@ CREATE TABLE `PREFIX_order_detail` (
   `product_weight` decimal(20,6) NOT NULL,
   `id_tax_rules_group` int(11) unsigned DEFAULT '0',
   `tax_computation_method` tinyint(1) unsigned NOT NULL DEFAULT '0',
-  `tax_name` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tax_name` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
   `tax_rate` decimal(10,3) NOT NULL DEFAULT '0.000',
   `ecotax` decimal(20,6) NOT NULL DEFAULT '0.000000',
   `ecotax_tax_rate` decimal(5,3) NOT NULL DEFAULT '0.000',

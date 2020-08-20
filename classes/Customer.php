@@ -60,7 +60,7 @@ class CustomerCore extends ObjectModel
             'last_passwd_gen'            => ['type' => self::TYPE_DATE, 'copy_post' => false, 'dbType' => 'timestamp', 'dbDefault' => ObjectModel::DEFAULT_CURRENT_TIMESTAMP],
             'birthday'                   => ['type' => self::TYPE_DATE, 'validate' => 'isBirthDate', 'dbType' => 'date'],
             'newsletter'                 => ['type' => self::TYPE_BOOL, 'validate' => 'isBool', 'dbDefault' => '0'],
-            'ip_registration_newsletter' => ['type' => self::TYPE_STRING, 'copy_post' => false, 'size' => 15],
+            'ip_registration_newsletter' => ['type' => self::TYPE_STRING, 'copy_post' => false, 'size' => 45],
             'newsletter_date_add'        => ['type' => self::TYPE_DATE, 'copy_post' => false],
             'optin'                      => ['type' => self::TYPE_BOOL, 'validate' => 'isBool', 'dbDefault' => '0'],
             'website'                    => ['type' => self::TYPE_STRING, 'validate' => 'isUrl', 'size' => 128],
@@ -1189,7 +1189,7 @@ class CustomerCore extends ObjectModel
         Hook::exec('actionCustomerLogoutBefore', ['customer' => $this]);
 
         if (isset(Context::getContext()->cookie)) {
-            Context::getContext()->cookie->logout();
+            Context::getContext()->cookie->delete();
         }
 
         $this->logged = 0;
@@ -1268,6 +1268,42 @@ class CustomerCore extends ObjectModel
         );
 
         return $totalPaid - $totalRest;
+    }
+
+    /**
+     * Return customer rank
+     *
+     * Return rank of customer among customers with at least one valid order.
+     * If customer haven't place any order yet, this method returns null.
+     *
+     * @return int|null
+     * @throws PrestaShopException
+     * @since 1.1.1
+     */
+    public function getBestCustomerRank()
+    {
+        $totalPaid = Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+            (new DbQuery())
+                ->select('SUM(`total_paid` / `conversion_rate`)')
+                ->from('orders')
+                ->where('`id_customer` = ' . (int)$this->id)
+                ->where('`valid` = 1')
+        );
+
+        if ($totalPaid) {
+            Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+                (new DbQuery())
+                    ->select('SQL_CALC_FOUND_ROWS COUNT(*)')
+                    ->from('orders')
+                    ->where('`valid` = 1')
+                    ->where('`id_customer` != ' . (int)$this->id)
+                    ->groupBy('id_customer')
+                    ->having('SUM(`total_paid` / `conversion_rate`) > ' . $totalPaid)
+            );
+            return (int)Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue('SELECT FOUND_ROWS()') + 1;
+        }
+
+        return null;
     }
 
     /**

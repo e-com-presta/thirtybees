@@ -232,7 +232,6 @@ class ConfigurationCore extends ObjectModel
     const ALLOW_MOBILE_DEVICE = 'PS_ALLOW_MOBILE_DEVICE';
     const CUSTOMER_CREATION_EMAIL = 'PS_CUSTOMER_CREATION_EMAIL';
     const SMARTY_CONSOLE_KEY = 'PS_SMARTY_CONSOLE_KEY';
-    const DASHBOARD_USE_PUSH = 'PS_DASHBOARD_USE_PUSH';
     const ATTRIBUTE_ANCHOR_SEPARATOR = 'PS_ATTRIBUTE_ANCHOR_SEPARATOR';
     const DASHBOARD_SIMULATION = 'PS_DASHBOARD_SIMULATION';
     const QUICK_VIEW = 'PS_QUICK_VIEW';
@@ -635,7 +634,7 @@ class ConfigurationCore extends ObjectModel
                     $value = Tools::purifyHTML($value);
                 } else {
                     // if html values are not allowed, strip tags
-                    $value = strip_tags(Tools::nl2br($value));
+                    $value = strip_tags($value);
                 }
             }
         }

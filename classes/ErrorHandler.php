@@ -17,6 +17,9 @@
  * @license   Open Software License (OSL 3.0)
  */
 
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
+
 /**
  * Class ErrorHandlerCore
  *
@@ -40,7 +43,7 @@ class ErrorHandlerCore
     protected $errorMessages = [];
 
     /**
-     * @var object psr compliant logger
+     * @var LoggerInterface psr compliant logger
      */
     protected $logger = null;
 
@@ -156,7 +159,7 @@ class ErrorHandlerCore
         $error = [
             'errno'       => $errno,
             'errstr'      => $errstr,
-            'errfile'     => $file,
+            'errfile'     => static::normalizeFileName($file),
             'errline'     => $line,
             'suppressed'  => $suppressed,
             'type'        => static::getErrorType($errno),
@@ -178,7 +181,8 @@ class ErrorHandlerCore
     public function shutdown()
     {
         $error = error_get_last();
-        if (static::isFatalError($error['type'])) {
+
+        if (is_array($error) && static::isFatalError($error['type'])) {
             $stack = [
                 1 => [
                     'file' => $error['file'],
@@ -317,6 +321,7 @@ class ErrorHandlerCore
     /**
      * Returns true if errno is a fatal error.
      *
+     * @param int $errno
      * @return boolean
      *
      * @since 1.1.0

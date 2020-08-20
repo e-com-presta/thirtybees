@@ -453,21 +453,24 @@ abstract class ModuleCore
             return false;
         }
 
-        if (!isset(static::$_INSTANCE[$moduleName])) {
-            if (!Tools::file_exists_no_cache(_PS_MODULE_DIR_.$moduleName.'/'.$moduleName.'.php')) {
-                return false;
-            }
+        $className = strtolower($moduleName);
 
-            return Module::coreLoadModule($moduleName);
+        if (!isset(static::$_INSTANCE[$className])) {
+
+            $module = static::moduleExistsOnFilesystem($moduleName)
+                ? Module::coreLoadModule($moduleName)
+                : false;
+
+            static::$_INSTANCE[$className] = $module;
         }
 
-        return static::$_INSTANCE[$moduleName];
+        return static::$_INSTANCE[$className];
     }
 
     /**
      * @param $moduleName
      *
-     * @return bool|mixed|object
+     * @return Module
      *
      * @throws Adapter_Exception
      * @throws PrestaShopDatabaseException
@@ -478,7 +481,6 @@ abstract class ModuleCore
     protected static function coreLoadModule($moduleName)
     {
         // Define if we will log modules performances for this session
-        // @codingStandardsIgnoreStart
         if (Module::$_log_modules_perfs === null) {
             $modulo = _PS_DEBUG_PROFILING_ ? 1 : Configuration::get('PS_log_modules_perfs_MODULO');
             Module::$_log_modules_perfs = ($modulo && mt_rand(0, $modulo - 1) == 0);
@@ -492,27 +494,10 @@ abstract class ModuleCore
             $timeStart = microtime(true);
             $memoryStart = memory_get_usage(true);
         }
-        // @codingStandardsIgnoreEnd
 
-        include_once(_PS_MODULE_DIR_.$moduleName.'/'.$moduleName.'.php');
+        $module = static::instantiateModule($moduleName);
 
-        $r = false;
-        if (Tools::file_exists_no_cache(_PS_OVERRIDE_DIR_.'modules/'.$moduleName.'/'.$moduleName.'.php')) {
-            include_once(_PS_OVERRIDE_DIR_.'modules/'.$moduleName.'/'.$moduleName.'.php');
-            $override = $moduleName.'Override';
-
-            if (class_exists($override, false)) {
-                $r = static::$_INSTANCE[$moduleName] = Adapter_ServiceLocator::get($override);
-            }
-        }
-
-        if (!$r && class_exists($moduleName, false)) {
-            $r = static::$_INSTANCE[$moduleName] = Adapter_ServiceLocator::get($moduleName);
-        }
-
-        // @codingStandardsIgnoreStart
         if (Module::$_log_modules_perfs) {
-            // @codingStandardsIgnoreEnd
             $timeEnd = microtime(true);
             $memoryEnd = memory_get_usage(true);
 
@@ -530,7 +515,35 @@ abstract class ModuleCore
             );
         }
 
-        return $r;
+        return $module;
+    }
+
+    /**
+     * @param String $moduleName
+     *
+     * @return Module
+     * @throws Adapter_Exception
+     * @throws PrestaShopException
+     */
+    protected static function instantiateModule($moduleName)
+    {
+        include_once(_PS_MODULE_DIR_.$moduleName.'/'.$moduleName.'.php');
+
+        if (Tools::file_exists_no_cache(_PS_OVERRIDE_DIR_.'modules/'.$moduleName.'/'.$moduleName.'.php')) {
+
+            include_once(_PS_OVERRIDE_DIR_.'modules/'.$moduleName.'/'.$moduleName.'.php');
+            $override = $moduleName.'Override';
+
+            if (class_exists($override, false)) {
+                return Adapter_ServiceLocator::get($override);
+            }
+        }
+
+        if (class_exists($moduleName, false)) {
+            return Adapter_ServiceLocator::get($moduleName);
+        }
+
+        throw new PrestaShopException("Failed to instantiate module '$moduleName'");
     }
 
     /**
@@ -936,19 +949,19 @@ abstract class ModuleCore
             if (!$useConfig || !$xmlExist || (isset($xmlModule->need_instance) && (int) $xmlModule->need_instance == 1) || $needNewConfigFile) {
                 // If class does not exists, we include the file
                 if (!class_exists($module, false)) {
-                    // Get content from php file
                     $filePath = _PS_MODULE_DIR_.$module.'/'.$module.'.php';
-                    $file = trim(file_get_contents(_PS_MODULE_DIR_.$module.'/'.$module.'.php'));
 
-                    if (substr($file, 0, 5) == '<?php') {
-                        $file = substr($file, 5);
-                    }
-
-                    if (substr($file, -2) == '?>') {
-                        $file = substr($file, 0, -2);
-                    }
-
-                    $file = preg_replace('/\n[\s\t]*?use\s.*?;/', '', $file);
+                    // Get PHP content, strip unwanted parts.
+                    $file = preg_replace(
+                        [
+                            "/^\xEF\xBB\xBF/",        // UTF-8 BOM
+                            '/^\s*<\?php/',           // PHP start tag
+                            '/\?>\s*$/',              // PHP end tag
+                            '/\n[\s\t]*?use\s.*?;/',  // PHP 'use'
+                        ],
+                        '',
+                        file_get_contents($filePath)
+                    );
 
                     // If (false) is a trick to not load the class with "eval".
                     // This way require_once will works correctly
@@ -1158,7 +1171,7 @@ abstract class ModuleCore
         foreach ($modules as $name) {
             if (is_file(_PS_MODULE_DIR_.$name)) {
                 continue;
-            } elseif (is_dir(_PS_MODULE_DIR_.$name.DIRECTORY_SEPARATOR) && file_exists(_PS_MODULE_DIR_.$name.'/'.$name.'.php')) {
+            } elseif (static::moduleExistsOnFilesystem($name)) {
                 if (!Validate::isModuleName($name)) {
                     throw new PrestaShopException(sprintf('Module %s is not a valid module name', $name));
                 }
@@ -1485,15 +1498,16 @@ abstract class ModuleCore
     {
         if (!Cache::isStored('Module::isEnabled'.$moduleName)) {
             $active = false;
-            $idModule = Module::getModuleIdByName($moduleName);
-            if (Db::getInstance()->getValue(
+            $idModule = (int)Module::getModuleIdByName($moduleName);
+
+            if ($idModule && Db::getInstance()->getValue(
                 (new DbQuery())
                     ->select('`id_module`')
                     ->from('module_shop')
-                    ->where('`id_module` = '.(int) $idModule)
+                    ->where('`id_module` = '. $idModule)
                     ->where('`id_shop` = '.(int) Context::getContext()->shop->id)
             )) {
-                $active = true;
+                $active = static::moduleExistsOnFilesystem($moduleName);
             }
             Cache::store('Module::isEnabled'.$moduleName, (bool) $active);
 
@@ -1547,62 +1561,60 @@ abstract class ModuleCore
         }
 
         // Check tb version compliancy
-        if (!defined('TB_INSTALLATION_IN_PROGRESS') || !TB_INSTALLATION_IN_PROGRESS) {
-            if (!$this->checkCompliancy()) {
-                $this->_errors[] = Tools::displayError('The version of your module is not compliant with your thirty bees version.');
+        if (!$this->checkCompliancy()) {
+            $this->_errors[] = Tools::displayError('The version of your module is not compliant with your thirty bees version.');
 
-                return false;
-            }
+            return false;
+        }
 
-            // Check module dependencies
-            if (count($this->dependencies) > 0) {
-                foreach ($this->dependencies as $dependency) {
-                    if (!Db::getInstance(_PS_USE_SQL_SLAVE_)->getRow(
-                        (new DbQuery())
-                            ->select('`id_module`')
-                            ->from('module')
-                            ->where('LOWER(`name`) = \''.pSQL(mb_strtolower($dependency)).'\'')
-                    )) {
-                        $error = Tools::displayError('Before installing this module, you have to install this/these module(s) first:').'<br />';
-                        foreach ($this->dependencies as $d) {
-                            $error .= '- '.$d.'<br />';
-                        }
-                        $this->_errors[] = $error;
-
-                        return false;
+        // Check module dependencies
+        if (count($this->dependencies) > 0) {
+            foreach ($this->dependencies as $dependency) {
+                if (!Db::getInstance(_PS_USE_SQL_SLAVE_)->getRow(
+                    (new DbQuery())
+                        ->select('`id_module`')
+                        ->from('module')
+                        ->where('LOWER(`name`) = \'' . pSQL(mb_strtolower($dependency)) . '\'')
+                )) {
+                    $error = Tools::displayError('Before installing this module, you have to install this/these module(s) first:') . '<br />';
+                    foreach ($this->dependencies as $d) {
+                        $error .= '- ' . $d . '<br />';
                     }
+                    $this->_errors[] = $error;
+
+                    return false;
                 }
             }
+        }
 
-            // Check if module is installed
-            $result = Module::isInstalled($this->name);
-            if ($result) {
-                $this->_errors[] = Tools::displayError('This module has already been installed.');
+        // Check if module is installed
+        $result = Module::isInstalled($this->name);
+        if ($result) {
+            $this->_errors[] = Tools::displayError('This module has already been installed.');
 
-                return false;
-            }
+            return false;
+        }
 
-            // Invalidate opcache
-            if (function_exists('opcache_invalidate') && file_exists(_PS_MODULE_DIR_.$this->name)) {
-                foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(_PS_MODULE_DIR_.$this->name)) as $file) {
-                    /** @var SplFileInfo $file */
-                    if (substr($file->getFilename(), -4) !== '.php' || $file->isLink()) {
-                        continue;
-                    }
-
-                    opcache_invalidate($file->getPathname());
+        // Invalidate opcache
+        if (function_exists('opcache_invalidate') && file_exists(_PS_MODULE_DIR_.$this->name)) {
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(_PS_MODULE_DIR_.$this->name)) as $file) {
+                /** @var SplFileInfo $file */
+                if (substr($file->getFilename(), -4) !== '.php' || $file->isLink()) {
+                    continue;
                 }
-            }
 
-            // Install overrides
-            try {
-                $this->installOverrides();
-            } catch (Exception $e) {
-                $this->_errors[] = sprintf(Tools::displayError('Unable to install override: %s'), $e->getMessage());
-                $this->uninstallOverrides();
-
-                return false;
+                opcache_invalidate($file->getPathname());
             }
+        }
+
+        // Install overrides
+        try {
+            $this->installOverrides();
+        } catch (Exception $e) {
+            $this->_errors[] = sprintf(Tools::displayError('Unable to install override: %s'), $e->getMessage());
+            $this->uninstallOverrides();
+
+            return false;
         }
 
 
@@ -1621,6 +1633,9 @@ abstract class ModuleCore
 
         // Enable the module for current shops in context
         $this->enable();
+
+        // Clean module cache
+        Cache::clean('Module::getModulesNameToIdMap');
 
         // Permissions management
         Db::getInstance()->execute(
@@ -1708,19 +1723,55 @@ abstract class ModuleCore
      */
     public static function getModuleIdByName($name)
     {
-        $cacheId = 'Module::getModuleIdByName_'.pSQL($name);
-        if (!Cache::isStored($cacheId)) {
-            $result = (int) Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
-                (new DbQuery())
-                    ->select('`id_module`')
-                    ->from('module')
-                    ->where('`name` = \''.pSQL($name).'\'')
-            );
-            Cache::store($cacheId, $result);
+        $map = static::getModulesNameToIdMap();
+        $key = strtolower($name);
+        return isset($map[$key]) ? $map[$key] : 0;
+    }
 
-            return $result;
+    /**
+     * Get module name by ID
+     *
+     * @param int $moduleId
+     *
+     * @since   1.1.1
+     * @return string | null
+     * @throws PrestaShopException
+     */
+    public static function getModuleNameById($moduleId)
+    {
+        $map = static::getModulesNameToIdMap();
+        foreach ($map as $moduleName => $id) {
+            if ($moduleId === $moduleId) {
+                return $moduleName;
+            }
         }
+        return null;
+    }
 
+    /**
+     * Returns mapping from modules name -> module IDs
+     *
+     * @since 1.1.1
+     * @return array
+     * @throws PrestaShopException
+     */
+    protected static function getModulesNameToIdMap()
+    {
+        $cacheId = 'Module::getModulesNameToIdMap';
+        if (!Cache::isStored($cacheId)) {
+            $sql = (new DbQuery())
+                ->select('`id_module`, `name`')
+                ->from('module');
+            $map = [];
+            foreach (Db::getInstance(_PS_USE_SQL_SLAVE_)->query($sql) as $row) {
+                $moduleId = (int)$row['id_module'];
+                $name = strtolower($row['name']);
+                $map[$name] = $moduleId;
+            }
+            Cache::store($cacheId, $map);
+
+            return $map;
+        }
         return Cache::retrieve($cacheId);
     }
 
@@ -2397,7 +2448,7 @@ abstract class ModuleCore
 
         // Uninstall the module
         if (Db::getInstance()->delete('module' , '`id_module` = '.(int) $this->id)) {
-            Cache::clean('Module::getModuleIdByName_'.pSQL($this->name));
+            Cache::clean('Module::getModulesNameToIdMap');
 
             return true;
         }
@@ -2624,9 +2675,14 @@ abstract class ModuleCore
      *
      * @return bool result
      * @throws PrestaShopException
+     * @throws Adapter_Exception
      */
     public function registerHook($hookName, $shopList = null)
     {
+        if (!isset($this->id) || !is_numeric($this->id)) {
+            return false;
+        }
+
         $return = true;
         if (is_array($hookName)) {
             $hookNames = $hookName;
@@ -2639,12 +2695,15 @@ abstract class ModuleCore
             if (!Validate::isHookName($hookName)) {
                 throw new PrestaShopException('Invalid hook name');
             }
-            if (!isset($this->id) || !is_numeric($this->id)) {
-                return false;
+
+            $alias = Hook::getRetroHookName($hookName);
+
+            if (!is_callable([$this, 'hook'.$hookName]) && !is_callable([$this, 'hook'.$alias])) {
+                Logger::addLog("Module '{$this->name}' is trying to register hook '$hookName', but does not implement handler", 2, 0, 'Module', $this->id);
+                continue;
             }
 
-            // Retrocompatibility
-            if ($alias = Hook::getRetroHookName($hookName)) {
+            if ($alias) {
                 $hookName = $alias;
             }
 
@@ -3025,15 +3084,60 @@ abstract class ModuleCore
      */
     public function isEnabledForShopContext()
     {
-        return (bool) Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
+        return static::isEnabledForShops($this->id, Shop::getContextListShopID());
+    }
+
+    /**
+     * This method returns true if module with id $moduleId is enabled for *all* shops specified in $shops array.
+     *
+     * @since   1.1.1
+     * @param int $moduleId module ID
+     * @param int[] $shops list of shops to check
+     * @return bool
+     * @throws PrestaShopException
+     */
+    public static function isEnabledForShops($moduleId, $shops)
+    {
+        // first, check if module is marked as enabled
+        if (! (bool) Db::getInstance(_PS_USE_SQL_SLAVE_)->getValue(
             (new DbQuery())
                 ->select('COUNT(*) n')
                 ->from('module_shop')
-                ->where('`id_module` = '.(int) $this->id)
-                ->where('`id_shop` IN ('.implode(',', array_map('intval', Shop::getContextListShopID())).')')
+                ->where('`id_module` = '.(int) $moduleId)
+                ->where('`id_shop` IN ('.implode(',', array_map('intval', $shops)).')')
                 ->groupBy('`id_module`')
-                ->having('n = '.(int) count(Shop::getContextListShopID())
-        ));
+                ->having('n = '. count($shops))
+        )) {
+            return false;
+        }
+
+        // if the module is enabled, check if module file exists on filesystem
+        return static::moduleExistsOnFilesystem(static::getModuleNameById($moduleId));
+    }
+
+    /**
+     * Returns true, if module file exists in /modules/<modulenName>/<moduleName>.php
+     *
+     * @param string $moduleName
+     *
+     * @since   1.1.1
+     * @return bool
+     */
+    public static function moduleExistsOnFilesystem($moduleName)
+    {
+        if (! $moduleName) {
+            return false;
+        }
+        if (! Validate::isModuleName($moduleName)) {
+            return false;
+        }
+
+        $name = strtolower($moduleName);
+
+        return (
+            is_dir(_PS_MODULE_DIR_. $name. DIRECTORY_SEPARATOR) &&
+            Tools::file_exists_no_cache(_PS_MODULE_DIR_ . $name . '/' . $name . '.php')
+        );
     }
 
     /**
@@ -3434,6 +3538,26 @@ abstract class ModuleCore
     }
 
     /**
+     * Return list of displayable hooks where this module can be hooked to
+     *
+     * By default, only front-office hooks are returned. By setting $includeBackOfficeHooks to true, the result
+     * will include even back-office displayable hooks
+     *
+     * @param bool $includeBackOfficeHooks
+     * @return array Hook list
+     *
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     * @since   1.1.1
+     */
+    public function getDisplayableHookList($includeBackOfficeHooks=false)
+    {
+        return array_filter($this->getPossibleHooksList(), function($hook) use ($includeBackOfficeHooks) {
+            return Hook::isDisplayableHook($hook['name'], $includeBackOfficeHooks);
+        });
+    }
+
+    /**
      * @param null $name
      *
      * @return string
@@ -3445,27 +3569,31 @@ abstract class ModuleCore
      */
     protected function getCacheId($name = null)
     {
-        $cache_array = [];
-        $cache_array[] = $name !== null ? $name : $this->name;
-        if (Configuration::get('PS_SSL_ENABLED')) {
-            $cache_array[] = (int) Tools::usingSecureMode();
-        }
-        if (Shop::isFeatureActive()) {
-            $cache_array[] = (int) $this->context->shop->id;
-        }
-        if (Group::isFeatureActive() && isset($this->context->customer)) {
-            $cache_array[] = (int) Group::getCurrent()->id;
-            $cache_array[] = implode('_', Customer::getGroupsStatic($this->context->customer->id));
-        }
-        if (Language::isMultiLanguageActivated()) {
-            $cache_array[] = (int) $this->context->language->id;
-        }
-        if (Currency::isMultiCurrencyActivated()) {
-            $cache_array[] = (int) $this->context->currency->id;
-        }
-        $cache_array[] = (int) $this->context->country->id;
+        static $suffix;
+        if (is_null($suffix)) {
+            $cache_array = [];
+            if (Configuration::get('PS_SSL_ENABLED')) {
+                $cache_array[] = (int)Tools::usingSecureMode();
+            }
+            if (Shop::isFeatureActive()) {
+                $cache_array[] = (int)$this->context->shop->id;
+            }
+            if (Group::isFeatureActive() && isset($this->context->customer)) {
+                $cache_array[] = (int)Group::getCurrent()->id;
+                $cache_array[] = implode('_', Customer::getGroupsStatic($this->context->customer->id));
+            }
+            if (Language::isMultiLanguageActivated()) {
+                $cache_array[] = (int)$this->context->language->id;
+            }
+            if (Currency::isMultiCurrencyActivated()) {
+                $cache_array[] = (int)$this->context->currency->id;
+            }
+            $cache_array[] = (int)$this->context->country->id;
 
-        return implode('|', $cache_array);
+            $suffix = '|' . implode('|', $cache_array);
+        }
+
+        return ($name !== null ? $name : $this->name) . $suffix;
     }
 
     /**
